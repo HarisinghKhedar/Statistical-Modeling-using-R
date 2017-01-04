@@ -1,0 +1,266 @@
+---
+title: "A General Overview of Predictive Modeling with Linear Regression"
+author: "Harisingh Khedar"
+date: "December 27, 2016"
+output: word_document
+---
+
+Hello and Welcome! I'm Harisingh Khedar and I work as Systems Analyst at NTT Data. Are you a data enthusiast? Looking to transition to Data science? We are on the same road then! I started learning about data analysis since few months and what is better than document what one learns? I believe this document will help you in laying the basic foundation around modeling process and predictive analytics.
+
+
+**What do we learn?**
+
+The primary motive of this document is to let you introduce to life-cycle of statistical modeling. I have come to learn that building models is an iterative and often daunting process divided into various stages - Data collection, data transformation and exploration, model building and evaluation, model validation etc. As part of the exercise, we also learn about regression technique, predictive modeling using R. 
+Without making it too verbose, I will try to explain various terms as we encounter. I use R for this exercise. I encourage you to take some online tutorials on R before starting.
+
+ 
+**What is linear regression?**
+
+Linear regression is good place to start if the objective is to predict numerical quantities based on one or more independent variables. The independent variable(s) could be either quantitative or categorical. 
+
+**What do we achieve with linear regression?**
+
+Suppose that y[i] is the numeric quantity we want to predict, and x[i,] is a row of inputs that corresponds to output y[i]. Linear regression finds a fit function f(x) such that y[i] ~ f(x[i,]) = b[1] x[i,1] + ... b[n] x[i,n]
+We want numbers b[1],...,b[n] (called the coefficients or betas) such that f(x[i,]) is as near as possible to y[i] for all (x[i,],y[i]) pairs in our training data. R supplies a one-line command to find these coefficients: lm().
+
+	y[i] = b[1] x[i,1] + b[2] x[i,2] + ... b[n] x[i,n] + e[i]
+	
+In particular, this means that y is linear in the values of x: a change in the value of x[i,m] by one unit (while holding all the other x[i,k]s constant) will change the value of y[i] by the amount b[m] always, no matter what the starting value of x[i,m] was. This is easier to see in one dimension. If y = 3 + 2\*x, and if we increase x by 1, then y will always increase by 2, no matter what the starting value of x is. This wouldn't be true for, say, y = 3 + 2*(x^2). The last term, e[i], represents what are called unsystematic errors, or noise. Unsystematic errors average to 0 (so they don't represent a net upward or net downward bias) and are uncorrelated with x[i,] and y[i].
+
+**Dataset Information**
+
+We work with Cars dataset for this exercise. For more information on this dataset, please check the reference manual for 'MASS' package at [https://cran.r-project.org/]. We will try to predict gas mileage based on given characteristics.
+
+The typical set of steps involved in data modeling are as follows. We organize the rest of our discussion on linear regression in step-by-step fashion.
+
+- Data collection
+- Data exploration and preparation
+- Build model
+- Evaluate model
+- Validate model
+- Deploy model
+
+\pagebreak
+
+##1. Data Collection
+
+*Load and attach the dataset to R workspace*
+
+```{r comment="#", tidy=TRUE}
+library("MASS")
+Cars93Data <- Cars93
+attach(Cars93Data)
+```
+
+R allows users to upload data from database, text files, web etc. using suitable commands. At any point, if you need detailed information on a given command, please use help(cmd) or ?cmd.
+
+*Getting to know the dataset*
+
+```{r comment="#", tidy=TRUE}
+dim(Cars93Data)
+str(Cars93Data)
+head(Cars93Data)
+```
+
+The above commands help us to know about dataset dimension, its structure, data etc. There are several other commands which help in getting to know more about the dataset.
+
+### Final note on Data collection
+
+Data collection is often tedious task as we need to find out and evaluate suitable data sources. Under real circumstances, you would have to engage with several stakeholders in order to understand and aggregate relevant data in one place.  
+
+\pagebreak
+
+##2. Data Exploration and Preparation
+
+### *Fetching the summary statistics*
+
+```{r comment="#", tidy=TRUE}
+summary(Cars93Data)
+```
+
+The summary command is very useful way to learn about data in hand. It provides numerical summaries (Range, Mean/Median, Quantiles etc.) for quantitative variables and frequency distribution for categorical variables. In addition, we also get to know about missing data - variables Rear.seat.room & Luggage.room have missing data. There are no unexpected data values (Ex. negative car price) and data looks reasonably divided for both numerical and categorical variables. We will learn more about data distribution during visualization.
+
+*Why one should care about missing values?*
+
+One should investigate the reasons behind missing data. There are two corrective measures to deal with missing data - Perhaps ignore observations with missing data if they make very small proportion of overall data or treat them according to your investigation. In our case, we will ignore these observations for demonstration purpose but still missing data for Luggage.room makes approximately 12% of dataset which is huge if our dataset were to be very large.
+
+**Removed missing values!**
+```{r comment="#", tidy=TRUE}
+Cars93Data.v1 <- na.omit(Cars93Data)
+dim(Cars93Data.v1)
+```
+
+*Split numeric and categorical variables*
+
+```{r comment="#", tidy=TRUE}
+Variables <- setdiff(colnames(Cars93Data.v1), c("MPG.highway", "Model", "AirBags", "DriveTrain", "Man.trans.avail", "Origin", "Make", "Luggage.room", "Rear.seat.room", "Turn.circle", "Manufacturer"))
+NumVars <- Variables[sapply(Cars93Data.v1[,Variables], class) %in% c("numeric", "integer")]
+CatVars <- Variables[sapply(Cars93Data.v1[,Variables], class) %in% c("factor")]
+rownames(Cars93Data.v1) <- Cars93Data.v1$Make #Reset the row names.
+```
+
+**NOTE** - We removed variables which doesn't seem to have any direct relation with car mileage - Number of air bags, area of origin, luggage room etc.
+
+*Correlation matrix for numeric variables*
+```{r comment="#", tidy=TRUE}
+round(cor(Cars93Data.v1[,NumVars]), 3)
+```
+
+###*Data Visualization*
+
+```{r echo=FALSE, message=FALSE}
+attach(Cars93Data.v1)
+```
+
+
+Using data visualization, we can learn more about data - its shape, distribution, outliers, range, relationships etc. It is another way to learn about data and its shortcomings. 
+
+The below scatter plot tell us same story as indicated by correlation matrix - the car mileage is linearly related to engine size, horse power etc. But they provide us more elaborated story.
+
+```{r fig.width = 20, fig.height = 10, echo=FALSE}
+par(mfrow = c(1,2))
+plot(EngineSize[Origin == "USA"], MPG.city[Origin == "USA"], main = "MPG vs. Engine size Scatterplot", xlab = "Engine Size", xlim = c(0, 6), ylab = "Car Mileage (MPG)", ylim = c(15, 50), las = 1, col = 4, cex = 1.5, cex.lab = 1.5, cex.axis = 1.5, cex.main = 2, pch = "U", font.lab = 2)
+points(EngineSize[Origin == "non-USA"], MPG.city[Origin == "non-USA"], col = 2, pch = "N", cex = 1.5)
+legend(x = 4, y = 50, legend = c("USA", "Non-USA"), fill = c(4, 2), cex = 1.5, bty = "n")
+plot(Horsepower[Origin == "USA"], MPG.city[Origin == "USA"], main = "MPG vs. Horse power Scatterplot", xlab = "Horse Power", ylab = "Car Mileage (MPG)", xlim = c(50, 300), ylim = c(15, 50), las = 1, col = 4, cex = 1.5, cex.lab = 1.5, cex.axis = 1.5, cex.main = 2, pch = "U", font.lab = 2)
+points(Horsepower[Origin == "non-USA"], MPG.city[Origin == "non-USA"], col = 2, pch = "N", cex = 1.5)
+legend(x = 230, y = 50, legend = c("USA", "Non-USA"), fill = c(4, 2), cex = 1.5, bty = "n")
+par(mfrow = c(1,1))
+```
+
+
+A typical car has its mileage between 15 - 30 MPG. The below graphs indicate **extreme values, possible outliers?**.  
+
+```{r fig.width = 8, fig.height = 6, echo=FALSE}
+hist(MPG.city, main = "Car Mileage Distribution - Histogram", probability = T, xlim = c(15, 50), xlab = "Car Mileage (MPG)", ylim = c(0, 0.13), breaks = 15, las = 1, col = "lightblue", cex.main = 1, cex.lab = 0.8, cex.axis = 0.8, font.lab = 2)
+lines(density(MPG.city), col = "blue", lwd = 2)
+text(x = 40, y = 0.01, label = "Outliers?", adj = 0, col = 2)
+box()
+boxplot(MPG.city, col = 2, horizontal = T, xlab = "Car Mileage (MPG)", main = "Car Mileage Distribution - Boxplot")
+```
+
+At this point, we just ignore the extreme outliers and redraw the histogram. **Much better!** We could apply transformations to approximate it more to normal curve.
+```{r comment="#", tidy=TRUE, message=FALSE}
+Cars93Data.v2 <- Cars93Data.v1[MPG.city < 35, ]
+dim(Cars93Data.v2)
+attach(Cars93Data.v2)
+```
+
+```{r fig.width = 8, fig.height = 6, echo=FALSE}
+hist(MPG.city, main = "Car Mileage Distribution - Histogram Redrawn", probability = T, xlim = c(10, 37), xlab = "Car Mileage (MPG)", ylim = c(0, 0.13), breaks = 13, las = 1, col = "lightblue", cex.main = 1, cex.lab = 0.8, cex.axis = 0.8, font.lab = 2)
+lines(density(MPG.city), col = "blue", lwd = 2)
+box()
+```
+
+
+The bar chart reveals more information about data in hand - there is no observation for car type "Van". I missed noticing from summary statistics but this chart helps to spot such anomalies.
+We don't have any large cars from outside USA. The small and medium size cars are best sold.
+
+```{r fig.width = 8, fig.height = 6, echo=FALSE}
+CatTab <- table(Origin, Type) #CONTIGENCY/FREQUENCY TABLE
+barplot(CatTab, main = "CarType by Origin", cex.main = 1, ylim = c(0, 25), xlab = "Car Type", cex.lab = 1, font.axis = 3, font.lab = 2, las = 1, legend.text = c("USA", "Non-USA"), col = c("darkgreen", "brown"))
+box()
+```
+
+*Reorganize levels for **type** variable*
+
+```{r comment="#", tidy=TRUE}
+Cars93Data.v2$Type1 <- factor(Cars93Data.v2$Type)
+levels(Cars93Data.v2$Type1)
+```
+
+The below graph indicates that cars with fewer cylinders seem to provide higher gas mileage. Interestingly, the data is not equally divided across categories.
+
+```{r fig.width = 8, fig.height = 6, echo=FALSE}
+boxplot(MPG.city ~ Cylinders, main = "MPG vs. Cylinders Boxplot", xlab = "Number of Cylinders", ylab = "MPG", las = 1, col = "blue", cex.main = 1, cex.lab = 0.9, cex.axis = 0.8, col.label = 2)
+text(x = 2.1, y = 44, labels = "Outlier?", cex = 0.8, font = 2)
+text(x = 3, y = 22, labels = "1 Obs?", cex = 0.8, font = 2)
+text(x = 6.1, y = 17, labels = "No Data!", font = 2)
+stripchart(MPG.city ~ Cylinders, vertical = TRUE, method = "jitter", pch = 19, add = TRUE, col = "red", cex = 0.7)
+```
+
+*Reorganize levels for **Cylinders** variable*
+```{r comment="#", tidy=TRUE}
+Cars93Data.v2$Cylinders <- factor(Cars93Data.v2$Cylinders)
+summary(Cars93Data.v2$Cylinders)
+```
+
+### Final note on Data Exploration and Preparation
+
+Data exploration & preparation is often very tedious and time-taking task. It helps to prepare the data for more sophisticated analysis in later steps.
+
+\pagebreak
+
+##3. Build and Evaluate Model
+
+After initial analysis of data, we are now ready to build a multiple linear regression model. Before we go any further, lets split the data into training set and test set. The training dataset is used to build the actual model, whereas the test dataset will be used to evaluate the model.
+
+```{r comment="#", tidy=TRUE}
+Cars93Data.v2$Sampling <- runif(dim(Cars93Data.v2)[1])
+TrainSet <- subset(Cars93Data.v2, Cars93Data.v2$Sampling > 0.1)
+TestSet <- subset(Cars93Data.v2, Cars93Data.v2$Sampling < 0.1)
+```
+
+###Build the Model
+
+We have decided to work with subset of variables, based on our analysis from the exploration phase.
+
+```{r comment="#", tidy=TRUE}
+Predictors <- paste(c("EngineSize", "Horsepower", "Weight", "Origin", "Cylinders", "Fuel.tank.capacity"), collapse = "+")
+Formula <- paste("MPG.city", Predictors, sep = "~")
+Formula
+Model <- lm(Formula, data = TrainSet)
+summary(Model)
+```
+
+The summary command gives us concise report on given model. At this point, we will not go in detail on individual terms but (R2, Adj R2) indicate good amount of variation explained by our model (~80%). Lets see if we can further improve this model using **backward selection approach**.
+
+**Applying backward selection :** The backward selection method removes non-significant terms based on AIC score. Though the selected model doesn't improve existing model significant enough, it is good practice to apply one of the model selection techniques.
+
+```{r comment="#", tidy=TRUE}
+step(Model, direction = "backward")
+```
+
+**The summary of selected model..**
+```{r comment="#", tidy=TRUE}
+Model <- lm(formula = MPG.city ~ Weight + Cylinders, data = TrainSet)
+summary(Model)
+```
+
+###Diagnostic plots
+```{r echo=FALSE, warning=FALSE}
+plot(Model)
+```
+
+**Residual vs. Fitted Plot:** Ideally, we would expect the points to be equally spreaded around residual mean = 0. The plot indicates some sort of pattern in our data as there are many under fitted values in middle. We should go back and further investigate the linearity among variables.
+
+**Q-Q Plot:** The data should approximately lie along the normal reference line. In our case, there is slight deviation from the line, indicating some sort of pattern in the data. Also, the graph shows outliers with labels (row names).
+
+####Residual normality test
+```{r comment="#", tidy=TRUE}
+#Shapiro-Wilk Normality Test
+shapiro.test(Model$residuals)
+```
+
+###Predictions
+
+Now, we go one step further and run the model to make predictions. The predictions on test data can be used to evaluate model fitting.
+
+```{r comment="#", tidy=TRUE}
+TestSet$MPG.PRED <- predict(Model, newdata = TestSet)
+TestSet[,c("MPG.city", "MPG.PRED")]
+TrainSet$MPG.PRED <- predict(Model, newdata = TrainSet)
+TrainSet[1:5,c("MPG.city", "MPG.PRED")]
+```
+
+### Final note on building model and evaluation
+
+As I mentioned earlier, building model is an iterative process in which we learn at every step. At times, we would have to go back and gather more appropriate data, choose another model etc. The diagnostic plots are very handy in assessing the overall model and decide if we can improve the same using another technique.
+
+We have covered till step 4 at this point. The final two stages (Model validation and deployment) would make more sense in real scenario. The model validation is primarily important to evaluate overall soundness of the developed model before it is deployed into production. We will skip these two steps but I hope you get the idea. 
+
+##Final note on the exercise
+
+The main focus of this exercise was to familiarize one with typical set of steps taken in process of building model. As I mentioned earlier, the whole process is iterative in itself and involves various stack holders such as project sponsor, client, data engineers etc. We discussed linear regression for this exercise and made predictions too. 
+
+In next paper, we repeat the same process but with another technique - **logistic regression**. I would love to have feedback/suggestions, if any. Thank you for taking time to read this introductory paper.
