@@ -1,0 +1,395 @@
+---
+title: "A General Overview of Predictive Modeling with Logistic Regression"
+author: "Harisingh Khedar"
+date: "December 16, 2016"
+output: word_document
+---
+
+Hello! Welcome back. In the previous document, we discussed about modeling process in general. We learnt about typical set of steps taken before a model is deployed in the production environment. In this exercise, we will continue our discussion in similar fashion but with another technique - Logistic Regression.
+
+**What is logistic regression?**
+
+Logistic regression is used when you want to estimate class probabilities i.e the probability that an object is in a given class. Logistic regression has very useful application like detecting whether a transaction is fraudulent or legitimate, assigning appropriate categories to products etc.
+
+**What do we achieve with logistic regression?**
+
+Logistic regression predicts the probability y that an instance belongs to a specific category - for instance, the probability that a flight will be delayed. When x[i,] is a row of inputs (for example, a flight's origin and destination, the time of year, the weather, the air carrier), logistic regression finds a fit function f(x) such that
+		
+		P[y[i] in class] ~ f(x[i,]) = s(a+b[1] x[i,1] + ... b[n] x[i,n])
+		
+Here, s(z) is the so-called sigmoid function, defined as s(z) = 1/(1+exp(z)). If the y[i] are the probabilities that the x[i,] belong to the class of interest (in our example, that a flight with certain characteristics will be delayed), then the task of fitting is to find the b[1], ..., b[n] such that f(x[i,]) is the best possible estimate of y[i].
+R supplies a one-line command to find these coefficients: glm(). Note that we don't need to supply y[i] that are probability estimates to run glm(); the training method only requires y[i] that say whether a given training example is in the target class. The sigmoid function maps real numbers to the interval (0,1)-that is, to probabilities. The inverse of the sigmoid is the logit, which is defined as log(p/(1-p)), where p is a probability. The ratio p/(1-p) is known as the odds, so in the flight example, the logit is the log of the odds (or log-odds) that a flight will be delayed. In other words, you can think of logistic regression as a linear regression that finds the log-odds of the probability that you're interested in. In particular, logistic regression assumes that logit(y) is linear in the values of x. Like linear regression, logistic regression will find the best coefficients to predict y, including finding advantageous combinations and cancellations when the inputs are correlated.
+
+
+**Dataset Information**
+
+The data is related to direct marketing campaigns of a Portuguese Banking Institution. The classification goal is to predict if the client will subscribe (Yes/No) a term deposit (Bank product and outcome variable). For more information on this dataset attributes, please access [http://archive.ics.uci.edu/ml/datasets/Bank+Marketing]
+
+Just to remind, we organize our work around below set of steps -
+
+- Data collection
+- Data exploration and preparation
+- Build model
+- Evaluate model
+- Validate model
+- Deploy model
+
+
+##1. Data Collection
+
+*Load the dataset in R*
+
+*Note: The input file needs to exist locally to use below command. Please download the same.*
+```{r comment="#", tidy=TRUE}
+BankData <- read.table(file.choose(), header = T, sep = ";")
+dim(BankData)
+```
+
+*Getting to know the dataset*
+```{r comment="#", tidy=TRUE}
+str(BankData)
+head(BankData)
+```
+
+The dataset has `r dim(BankData)[1]` instances and `r dim(BankData)[2]` variables, consisting good mix of numerical and categorical variables in the dataset. If you check the attribute info on aforementioned link, the variables cover client data, previous campaign data, social and economic contextual data among others.
+
+##2. Data Exploration and Preparation
+
+### *Fetching the summary statistics*
+```{r comment="#", tidy=TRUE}
+summary(BankData)
+```
+If you notice, we actually don't have all the information about all clients. For example, we don't have credit status info, housing loan info, personal loan info etc. about many clients. All these values are indicated by 'Unknown' level for categorical variables. *In normal scenario, we should go back and try to find out why we don't have missing information for so many clients.* Was it because the interviewer failed to collect such information? Was it because data was lost for some reason? It is worth investigating!
+
+For this exercise, we will consider these records as missing data and treat accordingly. Lets reload same file again, but considering 'Unknown' as NA's.
+
+```{r comment="#", tidy=TRUE}
+BankData <- read.table(file.choose(), header = T, sep = ";", na.strings = "unknown")
+summary(BankData$housing)
+```
+
+
+***Removing** missing data*
+```{r comment="#", tidy=TRUE}
+dim(BankData)
+BankData.v1 <- na.omit(BankData)
+dim(BankData.v1)
+summary(BankData.v1$housing)
+```
+
+*Lets **rename** variables for readability*
+
+```{r comment="#", tidy=TRUE}
+colnames(BankData.v1) <- c("Age", "Job", "Marital_status", "Education_level", "Default_credit", "Housing_loan", "Personal_loan", "Contact_type", "Contact_month", "Contact_weekday", "Duration", "Campaign", "Contact_gapdays", "Previous_contacts", "Previous_outcome", "Employment_var_rate", "Consumer_price_idx", "Consumer_confi_idx", "Euribor_3M_rate", "Num_of_employees", "Term_deposit")
+colnames(BankData.v1)
+```
+
+*Lets **reencode** the outcome as logical - TRUE/FALSE*
+
+```{r comment="#", tidy=TRUE}
+BankData.v1$Term_deposit <- ifelse(BankData.v1$Term_deposit == "yes", TRUE, FALSE)
+```
+
+
+*Lets also **reset** levels for categorical variables and set **reference levels**. For other categorical variables, we will just keep the default reference level.*
+```{r comment="#", tidy=TRUE}
+#Job
+Joblist <- list(unemployed = c("unemployed", "student", "retired"), self_employed  = c("self-employed", "entrepreneur"), employed = c("admin.", "blue-collar", "housemaid", "management", "services", "technician"))
+for (i in 1:length(Joblist)) levels(BankData.v1$Job)[levels(BankData.v1$Job) %in% Joblist[[i]]] <- names(Joblist)[i]
+BankData.v1$Job <- relevel(BankData.v1$Job, "unemployed")
+
+#Marital
+BankData.v1$Marital_status <- relevel(BankData.v1$Marital_status, "single")
+
+#Education level
+levels(BankData.v1$Education_level)[levels(BankData.v1$Education_level) %in% c("basic.4y","basic.6y","basic.9y")] <- "basic"
+BankData.v1$Education_level <- relevel(BankData.v1$Education_level, "illiterate")
+```
+
+It would make more sense to **categorize few numeric variables** -
+
+```{r comment="#", tidy=TRUE}
+Campaign_breaks <- c(0, 2, 50)
+BankData.v1$Campaign1 <- cut(BankData.v1$Campaign, breaks=Campaign_breaks, labels = c("<=2", ">2"), include.lowest=T)
+summary(BankData.v1$Campaign1)
+
+Gap_breaks <- c(0, 3, 30)
+BankData.v1$Contact_gapdays0 <- ifelse(BankData.v1$Contact_gapdays == 999, 0, BankData.v1$Contact_gapdays)
+BankData.v1$Contact_gapdays1 <- cut(BankData.v1$Contact_gapdays0, breaks=Gap_breaks, labels = c("<=3", ">3"), include.lowest=T)
+summary(BankData.v1$Contact_gapdays1)
+
+#Rounding number of employees
+BankData.v1$Num_of_employees <- round(BankData.v1$Num_of_employees)
+```
+
+**NOTE: We create new variables, in case if it is required to use original variables for analysis.**
+
+But when should one convert numerical variables into categorical? Please check [http://www.theanalysisfactor.com/3-situations-when-it-makes-sense-to-categorize-a-continuous-predictor-in-a-regression-model/]. I chose it because I didn't see good spread of values across the range. The values seem concentrated in certain areas. Converting numerical variables into categorical is subjective and your call !
+
+What else we learn from summary statistics?
+
+A **typical client** is mid-aged, employed, married, with no default credit among others. The last campaign was not that successful in terms of client subscriptions. The Bank haven't pursued same client enough between previous and current campaign.  
+
+### *Visualization*
+
+```{r echo=FALSE, warning=FALSE, include=FALSE, message=FALSE}
+library(ggplot2)
+library("ROCR")
+attach(BankData.v1)
+```
+```{r setup, include=FALSE}
+#RESIZE PLOTS
+options(dev = 'pdf')
+```
+
+
+The below graph indicates that most of the people didn't opt for term deposit during last campaign. Also, mid-aged people seem to influence the outcome heavily.
+
+```{r fig.width = 8, fig.height = 6, echo=FALSE}
+#https://www.r-bloggers.com/how-to-format-your-chart-and-axis-titles-in-ggplot2/
+#http://docs.ggplot2.org/dev/vignettes/themes.html
+
+#Histogram
+ggplot(BankData.v1, aes(x = Age)) + 
+geom_histogram(aes(y = ..density.., fill = ..count..), binwidth = 1) + 
+geom_density() + 
+scale_fill_gradient(low = "grey", high = "red") + 
+facet_grid(Term_deposit~.) + 
+labs(title = "How does the age distribution looks for outcome?", x = "Age of Bank Client", y = "Density", color = "Client count") +
+theme(plot.title = element_text(face = "bold.italic", size = 15, hjust = 0), axis.title = element_text(face = "italic", size = 12), axis.text = element_text(colour = "black"), axis.line.x = element_line(color = "black"), axis.line.y = element_line(color = "black"), legend.position = c(0.9, 0.8), panel.grid.major = element_blank(), panel.grid.minor = element_blank(), panel.background = element_rect(fill = "white"))
+
+#Boxplot
+ggplot(BankData.v1[Age < 20, ]) +
+geom_boxplot(aes(Term_deposit, Age), fill = "red") +
+coord_flip() +
+labs(x = "Subscribed?", y = "Age of the client", title = "Do younger clients influence the outcome?") +
+theme(plot.title = element_text(face = "bold.italic",size = 15, hjust = 0), axis.title = element_text(face = "italic", size = 12), axis.text = element_text(colour = "black"), axis.line.x = element_line(color = "black"), axis.line.y = element_line(color = "black"), panel.grid.major = element_blank(), panel.grid.minor = element_blank(), panel.border = element_rect(fill = NA))
+
+ggplot(BankData.v1[Age > 60, ]) +
+geom_boxplot(aes(Term_deposit, Age), fill = "red") +
+coord_flip() +
+labs(x = "Subscribed?", y = "Age of the client", title = "Do older clients influence the outcome?") +
+theme(plot.title = element_text(face = "bold.italic",size = 15, hjust = 0), axis.title = element_text(face = "italic", size = 12), axis.text = element_text(colour = "black"), axis.line.x = element_line(color = "black"), axis.line.y = element_line(color = "black"), panel.grid.major = element_blank(), panel.grid.minor = element_blank(), panel.border = element_rect(fill = NA))
+```
+
+*By looking at the Boxplots, it seems the outcome is not influenced much by younger(<20) and older(>60) clients. We are not going to include them in further analysis.*
+
+```{r comment="#", tidy=TRUE, message=FALSE}
+BankData.v2 <- BankData.v1[BankData.v1$Age >= 20 & BankData.v1$Age <= 60,]
+attach(BankData.v2)
+```
+
+In comparison with other people, **Unemployed people** seem to have slight inclination towards term deposit.
+
+```{r fig.width = 9, fig.height = 5, echo=FALSE, tidy=TRUE}
+ggplot(BankData.v2) + 
+geom_bar(aes(x = Job, fill = Term_deposit), position = 'fill') +
+labs(title = "Subscriptions based on Employment status", x = "Age of the Client", color = "Term deposit subscribed?") +
+scale_fill_manual(values = c("brown", "blue")) +
+theme(plot.title = element_text(face = "bold.italic", hjust = 0, size = 15), axis.title = element_text(face = "italic", size = 12), axis.text = element_text(colour = "black"), axis.line.x = element_line(color = "black"), axis.line.y = element_line(color = "black"), panel.grid.major = element_blank(), panel.grid.minor = element_blank(), panel.background = element_rect(fill = "white"), panel.border = element_rect(fill = NA))
+
+#REALIGN AXIS TEXT
+ggplot(BankData.v2) + 
+geom_bar(aes(x = Job, fill = Term_deposit), position = 'fill') + 
+facet_grid(~Marital_status) +
+labs(title = "Subscriptions based on Marital status & Employment type ", x = "Employment Status") +
+scale_fill_manual(values = c("brown", "blue")) +
+theme(plot.title = element_text(face = "bold.italic", hjust = 0, size = 15), axis.title = element_text(face = "italic", size = 12), axis.text.x = element_text(colour = "black", angle = 40, vjust = 0.4), axis.line.x = element_line(color = "black"), axis.line.y = element_line(color = "black"), panel.grid.major = element_blank(), panel.grid.minor = element_blank(), panel.background = element_rect(fill = "white"), panel.border = element_rect(fill = NA)) 
+```
+
+The bank seem to have contacted clients throughout the year, mostly around **May-Aug** period. Also the most common *mode of communication* was client cell phone.
+
+```{r fig.width = 9, fig.height = 6, echo=FALSE, tidy=TRUE}
+#REARRANGE THE MONTH
+BankData.v2$Contact_month_order <- factor(BankData.v2$Contact_month, levels = c("mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"))
+#attach(BankData.v2)
+ggplot(BankData.v2) + 
+geom_bar(aes(x = Contact_month_order, fill = Contact_type), position = 'dodge') + 
+labs(title = "Previous Campain Contact Info", x = "Month of Contact") +
+theme(plot.title = element_text(face = "bold.italic",size = 15, hjust = 0), axis.title = element_text(face = "italic", size = 12), axis.text = element_text(colour = "black"), axis.line.x = element_line(color = "black"), axis.line.y = element_line(color = "black"), panel.grid.major = element_blank(), panel.grid.minor = element_blank(), panel.border = element_rect(fill = NA))
+```
+
+The clients from previous campaign seem to show higher subscription rate on **recontact**. '*No contact*' means that the client was not contacted during previous campaign.
+
+```{r fig.width = 9, fig.height = 6, echo=FALSE, tidy=TRUE}
+#http://zevross.com/blog/2014/08/04/beautiful-plotting-in-r-a-ggplot2-cheatsheet-3/#TOC
+ggplot(BankData.v2) + 
+geom_bar(aes(x = Contact_gapdays1, fill = Term_deposit)) + 
+labs(x = "Days passed since last contact", title = "Calling frequency") + 
+scale_y_log10() + 
+theme(plot.title = element_text(face = "bold.italic",size = 15, hjust = 0), axis.title = element_text(face = "italic", size = 12), axis.text = element_text(colour = "black"), axis.line.x = element_line(color = "black"), axis.line.y = element_line(color = "black"), panel.grid.major = element_blank(), panel.grid.minor = element_blank(), panel.border = element_rect(fill = NA)) 
+```
+
+The below Boxplot clearly indicates the influence of economic factors on campaign outcome. You may want to check similar behavior with other economic factors.
+
+```{r fig.width = 9, fig.height = 6, echo=FALSE, tidy=TRUE}
+ggplot(BankData.v2) + 
+geom_boxplot(aes(Term_deposit, Consumer_price_idx), fill = "red") + 
+coord_flip() + 
+labs(x = "Did client subscribed?", y = "Variation in Consumer Price Index", title = "Influence of Economic Factors on subscriptions") + 
+theme(plot.title = element_text(face = "bold.italic",size = 15, hjust = 0), axis.title = element_text(face = "italic", size = 12), axis.text = element_text(colour = "black"), axis.line.x = element_line(color = "black"), axis.line.y = element_line(color = "black"), panel.grid.major = element_blank(), panel.grid.minor = element_blank(), panel.border = element_rect(fill = NA))
+
+```
+
+You may draw more graphs to understand the data further. But I hope you get the gist of this exercise step. Data exploration not only helps one to comprehend the problem context in depth but also gives an opportunity to rectify the data anomalies. 
+
+##3. Build and Evaluate the Model
+
+### Build the model
+
+*Lets build the formula first..*
+
+```{r comment="#", tidy=TRUE}
+X <- setdiff(colnames(BankData.v2), c("Campaign", "Duration", "Previous_outcome", "Contact_gapdays", "Contact_month", "Term_deposit"))
+Y <- "Term_deposit"
+Formula <- paste(Y, paste(X, collapse = "+"), sep = "~")
+```
+
+*Split the dataset in training and test set..*
+```{r comment="#", tidy=TRUE}
+BankData.v2$Sampling <- runif(dim(BankData.v2)[1])
+TrainSet <- subset(BankData.v2, BankData.v2$Sampling > 0.1)
+TestSet <- subset(BankData.v2, BankData.v2$Sampling < 0.1)
+```
+
+*Fitting the logistic regression model..*
+```{r comment="#", tidy=TRUE}
+#weights <- ifelse(Term_deposit == TRUE, 1 - sum(Term_deposit)/length(Term_deposit),sum(Term_deposit)/length(Term_deposit))
+#weights = 1 - sum(Term_deposit)/length(Term_deposit)
+#Model <- glm(Formula, family = binomial(link = "logit"), data = TrainSet,weights=weights)
+Model <- glm(Formula, family = binomial(link = "logit"), data = TrainSet)
+```
+
+*Making predictions..*
+```{r comment="#", tidy=TRUE}
+TrainSet$Term_deposit_pred <- predict(Model, newdata = TrainSet, type = "response")
+TestSet$Term_deposit_pred <- predict(Model, newdata = TestSet, type = "response")
+```
+
+Ideally, we'd like the distribution of scores to be separated, with the scores of the negative instances (NO) to be concentrated on the left, and the distribution for the positive instances to be concentrated on the right. In the current case, both distributions are concentrated on the left, meaning that both positive and negative instances score low. *This isn't surprising, since the positive instances are few*. There are more ways to find an appropriate threshold but we would go ahead with **0.16** for demonstration purposes.
+
+```{r fig.width = 9, fig.height = 6, echo=FALSE, tidy=TRUE}
+#Custom size for density plot lines
+ggplot(TrainSet) + 
+geom_density(aes(x = Term_deposit_pred, color = Term_deposit), size = 0.8) +
+labs(x = "Predicted Probabilities", y = "Density", title = "Threshold Analysis using Density Plot") +
+theme (plot.title = element_text(colour = "darkgreen", face = "bold.italic",size = 15, hjust = 0), axis.title = element_text(face = "italic", size = 12), axis.text = element_text(colour = "black"), axis.line.x = element_line(color = "black"), axis.line.y = element_line(color = "black"), panel.grid.major = element_blank(), panel.grid.minor = element_blank(), panel.border = element_rect(fill = NA)) + scale_color_manual(values = c("red", "green"))
+
+```
+
+### Evaluate the model
+
+There are several ways to evaluate the logistic regression model. We will discuss few of them.
+
+**Confusion Matrix with test data** : 
+This can be used to find out the model accuracy, precision, sensitivity, specificity etc. The resulting classifier is low-precision, but identifies a set of potential subscribers.
+
+```{r comment="#", tidy=TRUE}
+#Confusion Matrix
+cmat.test <- table(Actual = TestSet$Term_deposit, Predicted = TestSet$Term_deposit_pred>0.16)
+cmat.test
+
+#Model Accuracy
+sum(cmat.test[1,1], cmat.test[2,2]) / sum(cmat.test)
+
+#Model Precision
+cmat.test[2,2] / sum(cmat.test[,2])
+
+#Model Recall or Sensitivity
+cmat.test[2,2] / sum(cmat.test[2,])
+
+#Model Specificity
+cmat.test[1,1] / sum(cmat.test[1,])
+
+#Enrich
+(cmat.test[2,2] / sum(cmat.test[,2])) / mean(as.numeric(TestSet$Term_deposit))
+```
+
+```{r echo=FALSE, warning=FALSE, include=FALSE}
+##COMPUTE deviances
+
+#TRAIN SET
+loglikelihood <- function(y, py) { sum(y * log(py) + (1-y)*try(log(1 - py))) }
+pnull <- mean(as.numeric(TrainSet$Term_deposit))
+null.dev <- -2*loglikelihood(as.numeric(TrainSet$Term_deposit), pnull)
+resid.dev <- -2*loglikelihood(as.numeric(TrainSet$Term_deposit), TrainSet$Term_deposit_pred)
+
+#TEST SET
+pnull.test <- mean(as.numeric(TestSet$Term_deposit))
+null.dev.test <- -2*loglikelihood(as.numeric(TestSet$Term_deposit), pnull)
+resid.dev.test <- -2*loglikelihood(as.numeric(TestSet$Term_deposit), TestSet$Term_deposit_pred)
+
+##COMPUTE degrees of freedom
+df.null <- dim(TrainSet)[[1]] - 1
+df.model <- dim(TrainSet)[[1]] - length(Model$coefficients)
+
+diff.dev <- null.dev - resid.dev
+diff.df <- df.null - df.model
+```
+
+**pchisq** : Perform pchisq to test significance of observed fit.
+
+```{r comment="#", tidy=TRUE}
+pchisq(Model$null.deviance - Model$deviance, Model$df.null - Model$df.residual)
+```
+
+**pseudo R-squared** : 
+It is the measure of how much of the deviance is *explained* by the model. In our case, it is quite low and we would want it to be higher under normal circumstances.
+
+```{r comment="#", tidy=TRUE}
+#TRAIN SET
+1 - (Model$deviance/Model$null.deviance)
+
+#TEST SET
+1 - (resid.dev.test/null.dev.test)
+
+```
+
+**ROC CURVE** : 
+This curve represents every possible trade-off between sensitivity and specificity that is available for this classifier.
+
+```{r fig.width = 9, fig.height = 6, echo=FALSE, tidy=TRUE}
+eval <- prediction(TestSet$Term_deposit_pred, TestSet$Term_deposit)
+plot(performance(eval, "tpr", "fpr"))
+```
+
+**AUC** : 
+As you can see, we would want to have much higher AUC than what we see. **A good classifier must have AUC close to 1.**
+
+```{r comment="#", tidy=TRUE}
+#AUC
+attributes(performance(eval, "auc"))$y.values[[1]]
+```
+
+##4. Model validation and Deployment
+
+As I mentioned in my previous paper, these two steps would make more sense in real-scenario. Therefore, we will skip them for now.
+
+##5. Final note on the excercise!
+
+So, we have come to the end of second exercise. Alike the last paper, this paper also covers set of steps usually taken in model-building process. We discussed logistic regression for this exercise. 
+
+Thank you again, if you have took time to read through my initial two papers. I would very happy to have your feedback and comments.
+
+##6. What's next?
+
+You're probably wondering about what is next! Well, in my next paper I plan to implement other techniques on the same dataset and see if we can further improve the model. Stay tuned !
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
